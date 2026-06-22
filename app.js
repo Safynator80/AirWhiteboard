@@ -1,10 +1,11 @@
 const $ = (id) => document.getElementById(id);
-const MEDIAPIPE_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22';
-const MEDIAPIPE_WASM_URL = `${MEDIAPIPE_URL}/wasm`;
-const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+// Kept in the app so tracking does not rely on a CDN during camera startup.
+const MEDIAPIPE_URL = './vendor/mediapipe/vision_bundle.mjs';
+const MEDIAPIPE_WASM_URL = './vendor/mediapipe/wasm';
+const HAND_MODEL_URL = './vendor/mediapipe/hand_landmarker.task';
 const board = $('board'), boardWrap = $('boardWrap'), ctx = board.getContext('2d');
 const video = $('video'), overlay = $('overlay'), overlayCtx = overlay.getContext('2d');
-const state = { tool:'pen', size:5, strokes:[], active:null, handLandmarker:null, stream:null, running:false, lastVideoTime:-1, frames:[], lastPoint:null, lastFrame:0 };
+const state = { tool:'pen', size:5, strokes:[], active:null, handLandmarker:null, stream:null, running:false, lastVideoTime:-1, frames:[], lastPoint:null, lastFrame:0, smoothedPoint:null, lastHandSeen:0, fistStartedAt:0, fistCleared:false };
 
 function resizeCanvas() { const r=boardWrap.getBoundingClientRect(), scale=devicePixelRatio; board.width=r.width*scale; board.height=r.height*scale; ctx.setTransform(scale,0,0,scale,0,0); redraw(); }
 function pointFromEvent(e) { const r=board.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top, t:performance.now() }; }
@@ -38,7 +39,20 @@ function recognizeLast() { const strokes=state.strokes.filter(s=>s.tool==='pen')
 $('recognize').onclick=recognizeLast;
 
 function drawHand(landmarks) { overlayCtx.clearRect(0,0,overlay.width,overlay.height); const w=overlay.width,h=overlay.height; overlayCtx.fillStyle='#38f3df'; overlayCtx.strokeStyle='rgba(56,243,223,.55)'; overlayCtx.lineWidth=2; for(const p of landmarks){overlayCtx.beginPath();overlayCtx.arc(p.x*w,p.y*h,3,0,Math.PI*2);overlayCtx.fill();} const tip=landmarks[8]; overlayCtx.beginPath(); overlayCtx.arc(tip.x*w,tip.y*h,9,0,Math.PI*2); overlayCtx.stroke(); }
-function handPoint(landmarks) { const p=landmarks[8], thumb=landmarks[4]; const r=boardWrap.getBoundingClientRect(); return { x:(1-p.x)*r.width, y:p.y*r.height, t:performance.now(), pinch:Math.hypot(p.x-thumb.x,p.y-thumb.y)<.055 }; }
+function handPoint(landmarks) {
+  const p=landmarks[8], thumb=landmarks[4], r=boardWrap.getBoundingClientRect();
+  const raw={ x:(1-p.x)*r.width, y:p.y*r.height, t:performance.now(), pinch:Math.hypot(p.x-thumb.x,p.y-thumb.y)<.055 };
+  // Low-pass filtering quiets webcam landmark jitter without making handwriting feel syrupy.
+  const previous=state.smoothedPoint, alpha=previous ? .42 : 1;
+  const point={ ...raw, x:previous ? previous.x+(raw.x-previous.x)*alpha : raw.x, y:previous ? previous.y+(raw.y-previous.y)*alpha : raw.y };
+  state.smoothedPoint=point;
+  return point;
+}
+function isClosedFist(landmarks) {
+  // A fist has the four non-thumb fingertips below their middle knuckles in camera space.
+  // Requiring all four makes this intentionally conservative around normal writing poses.
+  return [[8,6],[12,10],[16,14],[20,18]].every(([tip,pip]) => landmarks[tip].y > landmarks[pip].y + .015);
+}
 function cameraErrorMessage(error) {
   if (!window.isSecureContext) return 'Open the app at localhost or HTTPS; browsers block cameras on insecure pages.';
   if (error?.name === 'NotAllowedError') return 'Camera permission was blocked. Use the lock icon in your browser address bar to allow Camera, then try again.';
@@ -48,13 +62,13 @@ function cameraErrorMessage(error) {
 }
 function trackerErrorMessage(error) {
   const detail = error?.message?.toLowerCase() || '';
-  if (detail.includes('fetch') || detail.includes('network') || detail.includes('load')) return 'Camera is live, but hand tracking could not download. Check your internet connection and reload.';
+  if (detail.includes('fetch') || detail.includes('network') || detail.includes('load')) return 'Camera is live, but the local hand-tracking files could not load. Restart the local server, then reload.';
   return 'Camera is live, but hand tracking could not start. Reload the page to retry with CPU tracking.';
 }
 async function createHandTracker() {
   const { FilesetResolver, HandLandmarker } = await import(MEDIAPIPE_URL);
   const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
-  const options = { baseOptions:{ modelAssetPath:HAND_MODEL_URL }, runningMode:'VIDEO', numHands:1 };
+  const options = { baseOptions:{ modelAssetPath:HAND_MODEL_URL }, runningMode:'VIDEO', numHands:1, minHandDetectionConfidence:.55, minHandPresenceConfidence:.5, minTrackingConfidence:.45 };
   try { return await HandLandmarker.createFromOptions(vision, { ...options, baseOptions:{ ...options.baseOptions, delegate:'GPU' } }); }
   catch (gpuError) { console.warn('GPU hand tracking unavailable; falling back to CPU.', gpuError); return HandLandmarker.createFromOptions(vision, { ...options, baseOptions:{ ...options.baseOptions, delegate:'CPU' } }); }
 }
@@ -86,6 +100,10 @@ async function startCamera() {
     setMode('TRACKER ERROR',trackerErrorMessage(err));
   }
 }
-function processVideo(now) { if(!state.running) return; if(video.currentTime!==state.lastVideoTime){state.lastVideoTime=video.currentTime; const result=state.handLandmarker.detectForVideo(video,now); const landmarks=result.landmarks?.[0]; if(landmarks){ drawHand(landmarks); const p=handPoint(landmarks); if(p.pinch){ if(!state.active) {beginStroke(p);setMode(state.tool==='pen'?'DRAWING':'ERASING','Release your pinch to finish the mark.');} else extendStroke(p); } else if(state.active){ endStroke(); setMode('READY TO DRAW','Pinch thumb and index finger to write.'); } } else { overlayCtx.clearRect(0,0,overlay.width,overlay.height); if(state.active)endStroke(); setMode('HAND NOT FOUND','Move your hand back into camera view.'); } }
+function processVideo(now) { if(!state.running) return; if(video.currentTime!==state.lastVideoTime){state.lastVideoTime=video.currentTime; const result=state.handLandmarker.detectForVideo(video,now); const landmarks=result.landmarks?.[0]; if(landmarks){ state.lastHandSeen=now; drawHand(landmarks); const p=handPoint(landmarks);
+    if(isClosedFist(landmarks)) { if(!state.fistStartedAt) state.fistStartedAt=now; const held=now-state.fistStartedAt; if(held>850&&!state.fistCleared){ state.fistCleared=true; $('clear').click(); setMode('BOARD CLEARED','Closed fist held — your board is clear.'); } else if(!state.fistCleared) setMode('HOLD TO CLEAR',`Keep your fist closed for ${Math.max(0,Math.ceil((850-held)/100)/10)}s.`); if(state.active)endStroke(); }
+    else { state.fistStartedAt=0; state.fistCleared=false; if(p.pinch){ if(!state.active) {beginStroke(p);setMode(state.tool==='pen'?'DRAWING':'ERASING','Release your pinch to finish the mark.');} else extendStroke(p); } else if(state.active){ endStroke(); setMode('READY TO DRAW','Pinch thumb and index finger to write.'); } }
+  } else { overlayCtx.clearRect(0,0,overlay.width,overlay.height); state.smoothedPoint=null; state.fistStartedAt=0; state.fistCleared=false; // A single missed frame is normal; keep the line alive briefly.
+    if(state.active && now-state.lastHandSeen>280){ endStroke(); setMode('HAND NOT FOUND','Move your hand back into camera view.'); } else if(!state.active&&now-state.lastHandSeen>280) setMode('HAND NOT FOUND','Move your hand back into camera view.'); } }
   state.frames.push(now); while(state.frames.length&&state.frames[0]<now-1000)state.frames.shift(); $('fps').textContent=`${state.frames.length} FPS`; requestAnimationFrame(processVideo); }
 $('startCamera').onclick=startCamera; resizeCanvas(); setTool('pen');

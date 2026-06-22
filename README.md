@@ -12,12 +12,13 @@ python -m http.server 4173
 
 Then open **exactly** `http://localhost:4173` — not a `file:///` address and not your computer's `192.168.x.x` network address. Browsers grant webcam access to `localhost` as a safe local-development origin even though it does not have a public HTTPS certificate. If you need to open the app from another device, serve it over HTTPS with a trusted certificate instead.
 
-Click **Start camera** and grant permission. The camera should now open immediately; hand tracking loads immediately after it. The first run downloads MediaPipe's hand-tracking model from its official CDN. If the mode card says **CAMERA ERROR**, it gives a specific fix for blocked permissions, an insecure page, a missing camera, or a camera that another app is using. If it says **TRACKER ERROR**, the camera remains visible; the issue is only the hand-tracking dependency or its network download.
+Click **Start camera** and grant permission. The camera should now open immediately; hand tracking loads immediately after it. The MediaPipe runtime and hand model are bundled in `vendor/mediapipe`, so tracking does not need an internet connection. If the mode card says **CAMERA ERROR**, it gives a specific fix for blocked permissions, an insecure page, a missing camera, or a camera that another app is using. If it says **TRACKER ERROR**, the camera remains visible; restart the local server and reload once.
 
 ## Controls
 
 - Pinch: draw / erase (depending on active tool)
 - Open hand: stop drawing
+- Closed fist: hold for 0.9 seconds to clear the board
 - `P`: pen; `E`: eraser; `Ctrl/Cmd + Z`: undo
 - **Recognize last mark**: gives an on-device suggestion for a basic digit or operator while keeping your original stroke intact.
 
