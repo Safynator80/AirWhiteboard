@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AirWhiteboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="AirWhiteboard home"><span class="brand-mark">✦</span> AirWhiteboard</a>
+        <div class="header-status"><span id="cameraDot" class="status-dot"></span><span id="cameraStatus">Camera off</span></div>
+      </header>
+
+      <section class="workspace">
+        <aside class="sidebar" aria-label="Whiteboard controls">
+          <div class="mode-card">
+            <span class="eyebrow">CURRENT MODE</span>
+            <strong id="modeText">IDLE</strong>
+            <p id="modeHint">Start the camera, then pinch to write.</p>
+          </div>
+          <div class="control-group">
+            <button id="startCamera" class="button primary">Start camera</button>
+            <button id="recognize" class="button">Recognize last mark</button>
+          </div>
+          <div class="tool-row" role="group" aria-label="Drawing tools">
+            <button id="penTool" class="tool active" title="Pen (P)">✎ <span>Pen</span></button>
+            <button id="eraserTool" class="tool" title="Eraser (E)">⌫ <span>Erase</span></button>
+          </div>
+          <label class="slider-label" for="strokeSize">Stroke size <output id="strokeSizeValue">5</output></label>
+          <input id="strokeSize" type="range" min="2" max="16" value="5" />
+          <div class="control-group secondary-actions">
+            <button id="undo" class="button">↶ Undo</button>
+            <button id="clear" class="button danger">Clear board</button>
+            <button id="save" class="button">↓ Export PNG</button>
+          </div>
+          <div class="shortcut-card">
+            <span class="eyebrow">GESTURES & SHORTCUTS</span>
+            <p><kbd>pinch</kbd> draw &nbsp; <kbd>open palm</kbd> pause</p>
+            <p><kbd>P</kbd> pen &nbsp; <kbd>E</kbd> erase &nbsp; <kbd>⌘/Ctrl Z</kbd> undo</p>
+          </div>
+        </aside>
+
+        <section class="board-panel">
+          <div class="board-heading"><div><span class="eyebrow">LIVE WHITEBOARD</span><h1>Write the equation in the air.</h1></div><span id="recognitionPill" class="recognition-pill">Recognition ready</span></div>
+          <div id="boardWrap" class="board-wrap">
+            <canvas id="board" aria-label="Digital whiteboard"></canvas>
+            <div id="emptyState" class="empty-state"><span>✦</span><strong>Your canvas is ready</strong><p>Pinch your thumb and index finger together to begin drawing.</p></div>
+          </div>
+          <div class="recognition-bar"><span>LAST RECOGNIZED</span><strong id="recognizedText">—</strong><span id="confidenceText">Draw a mark, then recognize it.</span></div>
+        </section>
+
+        <aside class="camera-panel">
+          <div class="camera-heading"><span class="eyebrow">CAMERA PREVIEW</span><span id="fps">— FPS</span></div>
+          <div class="video-wrap"><video id="video" playsinline muted></video><canvas id="overlay"></canvas><div id="videoPlaceholder" class="video-placeholder">Camera preview<br /><small>Click “Start camera” to connect</small></div></div>
+          <p class="camera-tip">Keep your hand in view. The teal dot follows your index finger.</p>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
